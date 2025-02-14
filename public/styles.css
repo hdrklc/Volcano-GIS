@@ -1,0 +1,325 @@
+/* Base styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+}
+
+body {
+    display: flex;
+    height: 100vh;
+    overflow: hidden;
+}
+
+/* Sidebar styling */
+#sidebar {
+    width: 320px;
+    height: 100vh;
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    box-shadow: 0 0 20px rgba(0,0,0,0.1);
+    z-index: 1000;
+    display: flex;
+    flex-direction: column;
+    border-right: 1px solid rgba(0,0,0,0.1);
+}
+
+.sidebar-content {
+    height: calc(100vh - 60px); /* Header yüksekliğini çıkar */
+    overflow-y: auto;
+    padding: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+/* Header styling */
+.sidebar-header {
+    padding: 15px;
+    background: linear-gradient(145deg, #2b6cb0, #2c5282);
+    color: white;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.sidebar-header h2 {
+    font-size: 1.3rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+}
+
+/* Section styling */
+.filter-section, .layer-control, .statistics, .danger-check-section {
+    background: rgba(255, 255, 255, 0.9);
+    padding: 12px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    border: 1px solid rgba(0,0,0,0.05);
+}
+
+/* Section headers */
+.filter-section h3, .layer-control h3, .statistics h3, .danger-check-section h3 {
+    color: #2d3748;
+    font-size: 1rem;
+    margin-bottom: 10px;
+    padding-bottom: 5px;
+    border-bottom: 2px solid rgba(0,0,0,0.1);
+}
+
+/* Filter groups */
+.filter-group {
+    margin-bottom: 12px;
+}
+
+.filter-group h4 {
+    color: #4a5568;
+    font-size: 0.85rem;
+    margin-bottom: 5px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Filter inputs */
+.filter-group label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 5px 0;
+    font-size: 0.9rem;
+}
+
+.filter-group input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+}
+
+.filter-group input[type="text"],
+.filter-group select,
+#baseMapSelect {
+    width: 100%;
+    padding: 8px;
+    border-radius: 4px;
+    border: 1px solid #e2e8f0;
+    font-size: 0.9rem;
+}
+
+/* Statistics styling */
+#statsContent {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+}
+
+#statsContent p {
+    font-size: 0.85rem;
+    padding: 5px;
+    background: rgba(0,0,0,0.02);
+    border-radius: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+#statsContent span {
+    font-weight: 600;
+    color: #2b6cb0;
+}
+
+/* Risk Analysis section */
+.danger-check-section {
+    margin-top: auto; /* Push to bottom */
+}
+
+.button-group {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin: 8px 0;
+}
+
+/* Buttons */
+.danger-check-btn,
+.location-picker-btn,
+.clear-location-btn,
+.confirm-location-btn {
+    padding: 8px;
+    font-size: 0.9rem;
+    border-radius: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+}
+
+/* Risk results */
+.risk-result {
+    margin-top: 10px;
+}
+
+.nearby-volcano {
+    padding: 6px;
+    margin: 4px 0;
+    font-size: 0.85rem;
+}
+
+/* Scrollbar styling */
+.sidebar-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.sidebar-content::-webkit-scrollbar-track {
+    background: rgba(0,0,0,0.02);
+}
+
+.sidebar-content::-webkit-scrollbar-thumb {
+    background: rgba(0,0,0,0.1);
+    border-radius: 3px;
+}
+
+/* Map container */
+#map {
+    flex: 1;
+    height: 100vh;
+}
+
+/* Custom animations */
+@keyframes slideIn {
+    from { transform: translateX(-100%); }
+    to { transform: translateX(0); }
+}
+
+.sidebar-content {
+    animation: slideIn 0.3s ease-out;
+}
+
+/* Responsive adjustments */
+@media (max-height: 800px) {
+    .filter-section, .layer-control, .statistics, .danger-check-section {
+        padding: 10px;
+    }
+    
+    .filter-group {
+        margin-bottom: 8px;
+    }
+    
+    .button-group {
+        gap: 6px;
+    }
+}
+
+/* Marker styles */
+.marker-pin {
+    width: 10px !important;
+    height: 10px !important;
+    border-radius: 50%;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    border: 2px solid rgba(255,255,255,0.8);
+    box-shadow: 0 0 4px rgba(0,0,0,0.3);
+}
+
+.custom-div-icon {
+    background: none !important;
+    border: none !important;
+    width: 20px !important;
+    height: 20px !important;
+}
+
+/* Popup styles */
+.leaflet-popup-content-wrapper {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border-radius: 10px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+}
+
+.leaflet-popup-content {
+    margin: 15px;
+}
+
+.popup-content {
+    min-width: 280px;
+}
+
+.popup-content h3 {
+    color: #2d3748;
+    font-size: 1.2rem;
+    margin-bottom: 12px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid rgba(0,0,0,0.1);
+}
+
+.popup-content table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+
+.popup-content td {
+    padding: 8px 4px;
+    font-size: 0.9rem;
+    border-bottom: 1px solid rgba(0,0,0,0.05);
+}
+
+.popup-content td:first-child {
+    font-weight: 600;
+    color: #4a5568;
+    width: 35%;
+}
+
+/* Custom scrollbar */
+#sidebar::-webkit-scrollbar {
+    width: 8px;
+}
+
+#sidebar::-webkit-scrollbar-track {
+    background: rgba(0,0,0,0.05);
+    border-radius: 4px;
+}
+
+#sidebar::-webkit-scrollbar-thumb {
+    background: rgba(0,0,0,0.2);
+    border-radius: 4px;
+}
+
+#sidebar::-webkit-scrollbar-thumb:hover {
+    background: rgba(0,0,0,0.3);
+}
+
+/* Layer control styling */
+.layer-control {
+    background: rgba(248, 249, 250, 0.8);
+    padding: 15px;
+    border-radius: 10px;
+    border: 1px solid rgba(0,0,0,0.05);
+    margin-bottom: 15px;
+}
+
+.layer-control h3 {
+    color: #2d3748;
+    margin-bottom: 12px;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+#baseMapSelect {
+    margin-top: 8px;
+}
+
+/* Leaflet controls custom styling */
+.leaflet-control-zoom {
+    border: none !important;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1) !important;
+}
+
+.leaflet-control-zoom a {
+    background: #fff !important;
+    color: #2c3e50 !important;
+    border: 1px solid #dee2e6 !important;
+}
+
+.leaflet-control-zoom a:hover {
+    background: #f8f9fa !important;
+}

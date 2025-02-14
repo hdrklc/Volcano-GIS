@@ -1,0 +1,1859 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Volcano GIS Application</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/leaflet-search@3.0.9/dist/leaflet-search.min.css" />
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-search@3.0.9/dist/leaflet-search.min.js"></script>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="sidebar">
+        <div class="sidebar-header">
+            <h2>🌋 Volcano GIS</h2>
+        </div>
+        <div class="sidebar-content">
+            <div class="filter-section">
+                <h3>Filters</h3>
+                <div class="filter-group">
+                    <h4>Activity Status</h4>
+                    <label><input type="checkbox" id="dormant" checked> Dormant</label>
+                    <label><input type="checkbox" id="active" checked> Active</label>
+                    <label><input type="checkbox" id="extinct" checked> Extinct</label>
+                </div>
+                <div class="filter-group">
+                    <h4>Search by Name</h4>
+                    <input type="text" id="nameSearch" placeholder="Search volcano...">
+                </div>
+                <div class="filter-group">
+                    <h4>Country Filter</h4>
+                    <select id="countryFilter">
+                        <option value="">All Countries</option>
+                    </select>
+                </div>
+            </div>
+            <div class="layer-control">
+                <h3>Base Maps</h3>
+                <select id="baseMapSelect">
+                    <option value="osm">OpenStreetMap</option>
+                    <option value="satellite">Satellite</option>
+                    <option value="terrain">Terrain</option>
+                </select>
+            </div>
+            <div class="statistics">
+                <h3>Statistics</h3>
+                <div id="statsContent"></div>
+            </div>
+
+            <!-- Chatbot bölümünü ekle -->
+            <div class="chatbot-section">
+                <h3>Volcano Assistant</h3>
+                <div class="chat-container">
+                    <div class="chat-messages" id="chatMessages">
+                        <div class="message bot">
+                            Hello! I'm your volcano assistant. How can I help you today?
+                        </div>
+                    </div>
+                    <div class="chat-input-container">
+                        <input type="text" id="chatInput" placeholder="Ask a question...">
+                        <button id="sendMessage">
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="danger-check-section">
+                <h3>Risk Analysis</h3>
+                <div class="risk-controls">
+                    <p class="location-instruction">Click on the map to select your location or use your current location</p>
+                    <div class="button-group">
+                        <button id="checkMyLocation" class="danger-check-btn">
+                            <i class="fas fa-location-arrow"></i> Use My Location
+                        </button>
+                        <button id="enableLocationPicker" class="location-picker-btn">
+                            <i class="fas fa-map-marker-alt"></i> Pick Location
+                        </button>
+                        <button id="confirmLocation" class="confirm-location-btn" style="display: none;">
+                            <i class="fas fa-check"></i> Confirm Location
+                        </button>
+                        <button id="clearLocation" class="clear-location-btn" style="display: none;">
+                            <i class="fas fa-times"></i> Clear
+                        </button>
+                    </div>
+                    <div id="riskResult" class="risk-result" style="display: none;">
+                        <div class="risk-message"></div>
+                        <div class="nearby-volcanoes"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Global değişkenler - Tek bir yerde tanımlama
+        let locationPickerEnabled = false;
+        let selectedLocationMarker = null;
+        let tempLocationMarker = null;
+        let allMarkers = [];
+        let currentImpactArea = null;
+        let currentBaseMap = 'osm';
+        let selectedLocation = null;
+
+        // Harita başlangıç ayarları
+        const map = L.map('map', {
+            center: [20, 0],
+            zoom: 3,
+            zoomControl: false
+        });
+        
+        // Base map'i ekle
+        const baseLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Base maps tanımlaması
+        const baseMaps = {
+            'osm': L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 19,
+                attribution: '© OpenStreetMap contributors'
+            }),
+            'satellite': L.tileLayer('https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+                maxZoom: 20,
+                attribution: '© Google'
+            }),
+            'terrain': L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+                maxZoom: 17,
+                attribution: '© OpenTopoMap contributors'
+            })
+        };
+
+        // İlk base map'i ekle
+        baseMaps[currentBaseMap].addTo(map);
+
+        // Harita kontrollerini ekle
+        L.control.scale({ imperial: false, position: 'bottomright' }).addTo(map);
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+        // Marker grupları
+        const markerGroups = {
+            'Active': L.layerGroup().addTo(map),
+            'Dormant': L.layerGroup().addTo(map),
+            'Extinct': L.layerGroup().addTo(map)
+        };
+
+        // İkon tanımlamaları
+        const volcanoIcons = {
+            'Active': L.divIcon({
+                className: 'custom-div-icon',
+                html: `<div style='background-color:#dc3545;' class='marker-pin'></div>`,
+                iconSize: [20, 20],
+                iconAnchor: [10, 10],
+                popupAnchor: [0, -10]
+            }),
+            'Dormant': L.divIcon({
+                className: 'custom-div-icon',
+                html: `<div style='background-color:#fd7e14;' class='marker-pin'></div>`,
+                iconSize: [20, 20],
+                iconAnchor: [10, 10],
+                popupAnchor: [0, -10]
+            }),
+            'Extinct': L.divIcon({
+                className: 'custom-div-icon',
+                html: `<div style='background-color:#6c757d;' class='marker-pin'></div>`,
+                iconSize: [20, 20],
+                iconAnchor: [10, 10],
+                popupAnchor: [0, -10]
+            })
+        };
+
+        // Etki alanı stili
+        const impactAreaStyle = {
+            color: '#ff0000',
+            fillColor: '#ff000033',
+            fillOpacity: 0.3,
+            weight: 2,
+            dashArray: '5, 10'
+        };
+
+        // Marker oluşturma fonksiyonunu güncelle
+        function createVolcanoMarker(volcano) {
+            const lat = parseFloat(volcano.latitude);
+            const lon = parseFloat(volcano.longitude);
+            const radius = parseFloat(volcano['Yarýçap (km)']) * 1000; // km'yi metreye çevir
+            const status = volcano['Activity Status'];
+            
+            const marker = L.marker([lat, lon], {
+                icon: volcanoIcons[status] || volcanoIcons['Dormant']
+            });
+
+            // Volcano verisini marker'a ekle
+            marker.volcano = volcano;
+
+            // Etki alanı çemberi (başlangıçta gizli)
+            const impactArea = L.circle([lat, lon], {
+                radius: radius,
+                ...impactAreaStyle
+            });
+
+            // Popup içeriğini güncelle ve etki alanı kontrolünü ekle
+            const popupContent = `
+                <div class="popup-content">
+                    <h3>${volcano['Volcano Name']}</h3>
+                    <table>
+                        <tr><td>Country:</td><td>${volcano.country}</td></tr>
+                        <tr><td>Status:</td><td>${status}</td></tr>
+                        <tr><td>Last Eruption:</td><td>${volcano['Last Known Eruption']}</td></tr>
+                        <tr><td>Location:</td><td>${lat.toFixed(4)}, ${lon.toFixed(4)}</td></tr>
+                        <tr><td>Radius:</td><td>${volcano['Yarýçap (km)']} km</td></tr>
+                        <tr><td>Area:</td><td>${volcano['Alan (km²)']} km²</td></tr>
+                    </table>
+                    <button class="show-impact-area" onclick="toggleImpactArea(${lat}, ${lon}, ${radius})">
+                        Show Impact Area
+                    </button>
+                </div>
+            `;
+
+            marker.bindPopup(popupContent);
+            
+            // Marker ve etki alanını obje olarak döndür
+            return {
+                marker: marker,
+                impactArea: impactArea,
+                data: volcano
+            };
+        }
+
+        // Etki alanını göster/gizle fonksiyonu
+        function toggleImpactArea(lat, lon, radius) {
+            if (currentImpactArea) {
+                map.removeLayer(currentImpactArea);
+                currentImpactArea = null;
+            } else {
+                currentImpactArea = L.circle([lat, lon], {
+                    radius: radius,
+                    ...impactAreaStyle
+                }).addTo(map);
+                
+                // Etki alanını göster ve haritayı sınırlara zoom yap
+                map.fitBounds(currentImpactArea.getBounds(), {
+                    padding: [50, 50]
+                });
+            }
+        }
+
+        // Veri yükleme ve marker ekleme fonksiyonunu güncelle
+        function addVolcanoToMap(volcano) {
+            const lat = parseFloat(volcano.latitude);
+            const lon = parseFloat(volcano.longitude);
+            const status = volcano.activity_status;
+
+            if (!isNaN(lat) && !isNaN(lon) && status) {
+                console.log(`Adding volcano: ${volcano.volcano_name} at ${lat},${lon} with status ${status}`);
+                
+                const marker = L.marker([lat, lon], {
+                    icon: volcanoIcons[status] || volcanoIcons['Unknown']
+                }).bindPopup(`
+                    <div class="popup-content">
+                        <h3>${volcano.volcano_name}</h3>
+                        <p>Status: ${status}</p>
+                        <p>Country: ${volcano.country}</p>
+                    </div>
+                `);
+
+                if (markerGroups[status]) {
+                    markerGroups[status].addLayer(marker);
+                    console.log(`Added to ${status} group`);
+                }
+                
+                return marker;
+            }
+            return null;
+        }
+
+        // Veri yükleme kısmını güncelle
+        fetch('http://localhost:3000/api/volcanoes')
+            .then(response => response.json())
+            .then(data => {
+                console.log("Veritabanından gelen veriler:", data);
+                console.log("Total volcanoes received:", data.length);
+                
+                if (!Array.isArray(data) || data.length === 0) {
+                    console.error("Veri dizisi boş veya geçersiz:", data);
+                    return;
+                }
+
+                const countries = new Set();
+                let activeCount = 0, dormantCount = 0, extinctCount = 0;
+
+                data.forEach(function(volcano) {
+                    if (volcano.country) countries.add(volcano.country);
+                    
+                    const volcanoObj = createVolcanoMarker(volcano);
+                    
+                    if (volcanoObj.marker) {
+                        allMarkers.push(volcanoObj.marker);
+                        
+                        const status = volcano['Activity Status'];
+                        if (status && markerGroups[status]) {
+                            markerGroups[status].addLayer(volcanoObj.marker);
+                            switch(status) {
+                                case 'Active': activeCount++; break;
+                                case 'Dormant': dormantCount++; break;
+                                case 'Extinct': extinctCount++; break;
+                            }
+                        }
+                    }
+                });
+
+                // Marker gruplarını haritaya ekle
+                Object.values(markerGroups).forEach(group => group.addTo(map));
+                
+                updateStatistics(activeCount, dormantCount, extinctCount);
+                populateCountryFilter(Array.from(countries).sort());
+                
+                console.log("Toplam eklenen marker sayısı:", allMarkers.length);
+            })
+            .catch(error => {
+                console.error('Veri yükleme hatası:', error);
+                alert('Veri yüklenirken bir hata oluştu: ' + error.message);
+            });
+
+        // Yardımcı fonksiyonları ekle
+        function toggleMarkerGroup(status, show) {
+            if (show) {
+                markerGroups[status].addTo(map);
+            } else {
+                map.removeLayer(markerGroups[status]);
+            }
+        }
+
+        function updateStatistics(active, dormant, extinct) {
+            document.getElementById('statsContent').innerHTML = `
+                <p>Active Volcanoes: <span>${active}</span></p>
+                <p>Dormant Volcanoes: <span>${dormant}</span></p>
+                <p>Extinct Volcanoes: <span>${extinct}</span></p>
+                <p>Total: <span>${active + dormant + extinct}</span></p>
+            `;
+        }
+
+        function populateCountryFilter(countries) {
+            const select = document.getElementById('countryFilter');
+            select.innerHTML = '<option value="">All Countries</option>';
+            countries.forEach(country => {
+                const option = document.createElement('option');
+                option.value = country;
+                option.textContent = country;
+                select.appendChild(option);
+            });
+        }
+
+        // Event listener'ları ekle
+        ['dormant', 'active', 'extinct'].forEach(status => {
+            document.getElementById(status).addEventListener('change', function() {
+                toggleMarkerGroup(status.charAt(0).toUpperCase() + status.slice(1), this.checked);
+            });
+        });
+
+        // Ülke filtresi için event listener
+        document.getElementById('countryFilter').addEventListener('change', function(e) {
+            const selectedCountry = e.target.value;
+            
+            // Tüm marker gruplarını temizle
+            Object.values(markerGroups).forEach(group => {
+                group.clearLayers();
+            });
+
+            // Filtreleme işlemi
+            allMarkers.forEach(marker => {
+                const status = marker.volcano['Activity Status'];
+                const country = marker.volcano.country;
+                const statusCheckbox = document.getElementById(status.toLowerCase());
+
+                if (statusCheckbox && statusCheckbox.checked) {
+                    if (selectedCountry === '' || country === selectedCountry) {
+                        markerGroups[status].addLayer(marker);
+                    }
+                }
+            });
+
+            // Haritayı seçilen ülkeye zoom yap
+            if (selectedCountry) {
+                const countryMarkers = allMarkers.filter(m => m.volcano.country === selectedCountry);
+                if (countryMarkers.length > 0) {
+                    const bounds = L.featureGroup(countryMarkers).getBounds();
+                    map.fitBounds(bounds, { padding: [50, 50] });
+                }
+            } else {
+                // Tüm haritayı göster
+                map.setView([20, 0], 3);
+            }
+        });
+
+        // Base map değişikliği için event listener
+        document.getElementById('baseMapSelect').addEventListener('change', function(e) {
+            // Mevcut base map'i kaldır
+            map.removeLayer(baseMaps[currentBaseMap]);
+            
+            // Yeni base map'i seç
+            currentBaseMap = e.target.value;
+            
+            // Yeni base map'i ekle
+            baseMaps[currentBaseMap].addTo(map);
+        });
+
+        // Font Awesome ikonlarını ekle
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css';
+        document.head.appendChild(link);
+
+        // Tehlike analizi için yeni fonksiyonlar
+        function checkLocationRisk(position) {
+            const userLat = position.coords.latitude;
+            const userLon = position.coords.longitude;
+            const userLocation = L.latLng(userLat, userLon);
+            
+            // Önceki etki alanlarını temizle
+            if (currentImpactArea) {
+                map.removeLayer(currentImpactArea);
+            }
+
+            // Kullanıcı konumunu haritada göster
+            if (selectedLocationMarker) {
+                map.removeLayer(selectedLocationMarker);
+            }
+            
+            selectedLocationMarker = L.marker([userLat, userLon], {
+                icon: L.divIcon({
+                    className: 'user-location-marker',
+                    html: '<div class="user-pin"></div>',
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10]
+                })
+            }).addTo(map);
+
+            // Tehlikeli volkanları bul
+            let dangerousVolcanoes = [];
+            let impactAreas = [];
+            
+            allMarkers.forEach(marker => {
+                const volcano = marker.volcano;
+                const volcanLoc = marker.getLatLng();
+                const distance = userLocation.distanceTo(volcanLoc) / 1000; // metre -> km
+                const radius = parseFloat(volcano['Yarýçap (km)'] || 0);
+
+                // Etki alanı çemberini oluştur
+                const impactArea = L.circle(volcanLoc, {
+                    radius: radius * 1000, // km'yi metreye çevir
+                    color: '#ff0000',
+                    fillColor: '#ff0000',
+                    fillOpacity: 0.1,
+                    weight: 1,
+                    dashArray: '5, 10'
+                });
+
+                if (distance <= radius) {
+                    dangerousVolcanoes.push({
+                        name: volcano['Volcano Name'],
+                        distance: distance.toFixed(2),
+                        status: volcano['Activity Status'],
+                        impactArea: impactArea
+                    });
+                    impactAreas.push(impactArea);
+                }
+            });
+
+            // Etki alanlarını haritaya ekle
+            if (impactAreas.length > 0) {
+                currentImpactArea = L.featureGroup(impactAreas).addTo(map);
+                
+                // Tehlike uyarısını göster
+                Swal.fire({
+                    title: '⚠️ Volcanic Danger Zone!',
+                    html: `
+                        <div class="danger-alert">
+                            <p class="danger-text">You are within the impact zone of ${dangerousVolcanoes.length} volcano(es)!</p>
+                            <div class="danger-volcanoes">
+                                ${dangerousVolcanoes.map(v => `
+                                    <div class="danger-volcano">
+                                        <strong>${v.name}</strong>
+                                        <span>${v.distance} km away</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                            <p class="warning-text">Please be aware of evacuation routes and monitor local authorities for updates.</p>
+                        </div>
+                    `,
+                    icon: 'warning',
+                    confirmButtonText: 'I Understand',
+                    confirmButtonColor: '#dc3545',
+                    showCancelButton: true,
+                    cancelButtonText: 'Choose Another Location',
+                    cancelButtonColor: '#6c757d'
+                }).then((result) => {
+                    if (!result.isConfirmed) {
+                        // Kullanıcı başka konum seçmek isterse
+                        if (selectedLocationMarker) {
+                            map.removeLayer(selectedLocationMarker);
+                            selectedLocationMarker = null;
+                        }
+                        if (currentImpactArea) {
+                            map.removeLayer(currentImpactArea);
+                            currentImpactArea = null;
+                        }
+                        locationPickerEnabled = true;
+                        document.getElementById('enableLocationPicker').classList.add('active');
+                        map.getContainer().style.cursor = 'crosshair';
+                    }
+                });
+            }
+
+            // Sonuçları göster
+            const resultDiv = document.getElementById('riskResult');
+            const messageDiv = resultDiv.querySelector('.risk-message');
+            const nearbyDiv = resultDiv.querySelector('.nearby-volcanoes');
+
+            resultDiv.style.display = 'block';
+            
+            if (dangerousVolcanoes.length > 0) {
+                messageDiv.innerHTML = `
+                    <div class="alert alert-danger">
+                        <strong>Warning!</strong> You are within the impact zone of ${dangerousVolcanoes.length} volcano(es)!
+                        <p class="danger-tip">Please be aware of evacuation routes and emergency procedures.</p>
+                    </div>
+                `;
+                
+                nearbyDiv.innerHTML = dangerousVolcanoes.map(v => `
+                    <div class="nearby-volcano ${v.status.toLowerCase()}">
+                        <span class="volcano-name">${v.name}</span>
+                        <span class="volcano-distance">${v.distance} km away</span>
+                        <span class="volcano-status">${v.status}</span>
+                    </div>
+                `).join('');
+            } else {
+                messageDiv.innerHTML = `
+                    <div class="alert alert-success">
+                        <strong>Good news!</strong> You are not in any immediate danger zone.
+                    </div>
+                `;
+                nearbyDiv.innerHTML = '';
+            }
+
+            // Haritayı kullanıcı konumuna zoom yap
+            map.setView([userLat, userLon], 10);
+        }
+
+        // Konum kontrolü için event listener'ı güncelle
+        document.getElementById('checkMyLocation').addEventListener('click', function() {
+            if ("geolocation" in navigator) {
+                // Loading göster
+                Swal.fire({
+                    title: 'Konum Alınıyor...',
+                    text: 'Lütfen konum izni verdiğinizden emin olun',
+                    allowOutsideClick: false,
+                    showConfirmButton: false,
+                    didOpen: () => {
+                        Swal.showLoading();
+                    }
+                });
+
+                const options = {
+                    enableHighAccuracy: true,
+                    timeout: 10000,
+                    maximumAge: 0
+                };
+
+                function success(position) {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+
+                    // Önceki marker'ı temizle
+                    if (selectedLocationMarker) {
+                        map.removeLayer(selectedLocationMarker);
+                    }
+
+                    // Yeni marker oluştur
+                    selectedLocationMarker = L.marker([lat, lon], {
+                        icon: L.divIcon({
+                            className: 'user-location-marker',
+                            html: '<div class="user-pin active"></div>',
+                            iconSize: [20, 20],
+                            iconAnchor: [10, 10]
+                        })
+                    }).addTo(map);
+
+                    // Haritayı konuma zoom yap
+                    map.setView([lat, lon], 12);
+
+                    // Loading'i kapat
+                    Swal.close();
+
+                    // Risk analizi yap
+                    const userLocation = L.latLng(lat, lon);
+                    const analysis = analyzeLocation(userLocation);
+
+                    // Sonuçları göster
+                    if (analysis.isInDanger) {
+                        Swal.fire({
+                            title: '⚠️ Tehlike Bölgesi!',
+                            html: `
+                                <div class="danger-alert">
+                                    <p class="danger-text">${analysis.dangerousVolcanoes.length} volkanın etki alanındasınız!</p>
+                                    <div class="volcano-list">
+                                        ${analysis.dangerousVolcanoes.map(v => `
+                                            <div class="volcano-item ${v.status.toLowerCase()}">
+                                                <strong>${v.name}</strong>
+                                                <div class="volcano-details">
+                                                    <span>${v.distance} km uzaklıkta</span>
+                                                    <span class="status">${v.status}</span>
+                                                </div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                </div>
+                            `,
+                            icon: 'warning',
+                            confirmButtonText: 'Anladım',
+                            confirmButtonColor: '#dc3545'
+                        });
+                    }
+
+                    // Risk sonuçlarını panelde göster
+                    showLocationAnalysis(analysis);
+
+                    // Clear butonunu göster
+                    document.getElementById('clearLocation').style.display = 'block';
+                }
+
+                function error(err) {
+                    Swal.fire({
+                        icon: 'error',
+                        title: 'Konum Hatası',
+                        text: `Konum alınamadı: ${err.message}`,
+                        confirmButtonText: 'Tamam'
+                    });
+                }
+
+                navigator.geolocation.getCurrentPosition(success, error, options);
+            } else {
+                Swal.fire({
+                    icon: 'error',
+                    title: 'Desteklenmiyor',
+                    text: 'Tarayıcınız konum özelliğini desteklemiyor',
+                    confirmButtonText: 'Tamam'
+                });
+            }
+        });
+
+        // Konum analizi sonuçlarını gösterme fonksiyonu
+        function showLocationAnalysis(analysis) {
+            const resultDiv = document.getElementById('riskResult');
+            resultDiv.style.display = 'block';
+
+            if (analysis.isInDanger) {
+                // Tehlike durumu uyarısı
+                Swal.fire({
+                    title: '⚠️ Volcanic Risk Alert',
+                    html: `
+                        <div class="risk-analysis">
+                            <p class="danger-text">
+                                You are within the impact zone of ${analysis.dangerousVolcanoes.length} volcano(es)!
+                            </p>
+                            <div class="volcano-list">
+                                ${analysis.dangerousVolcanoes.map(v => `
+                                    <div class="volcano-item ${v.status.toLowerCase()}">
+                                        <strong>${v.name}</strong>
+                                        <div class="volcano-details">
+                                            <span>${v.distance} km away</span>
+                                            <span class="status">${v.status}</span>
+                                        </div>
+                                    </div>
+                                `).join('')}
+                            </div>
+                            <p class="warning-tip">
+                                Please be aware of evacuation routes and monitor local authorities.
+                            </p>
+                        </div>
+                    `,
+                    icon: 'warning',
+                    confirmButtonText: 'I Understand',
+                    confirmButtonColor: '#dc3545'
+                });
+
+                // Risk sonuçlarını panelde göster
+                resultDiv.innerHTML = `
+                    <div class="risk-content danger">
+                        <div class="risk-header">
+                            <i class="fas fa-exclamation-triangle"></i>
+                            <h4>High Risk Area</h4>
+                        </div>
+                        <div class="risk-details">
+                            ${analysis.dangerousVolcanoes.map(v => `
+                                <div class="volcano-detail-item">
+                                    <span class="name">${v.name}</span>
+                                    <span class="distance">${v.distance} km</span>
+                                    <span class="status ${v.status.toLowerCase()}">${v.status}</span>
+                                </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                `;
+            } else {
+                // Güvenli bölge bildirimi
+                resultDiv.innerHTML = `
+                    <div class="risk-content safe">
+                        <div class="risk-header">
+                            <i class="fas fa-check-circle"></i>
+                            <h4>Safe Zone</h4>
+                        </div>
+                        <div class="risk-details">
+                            <p>You are not in any immediate volcanic danger zone.</p>
+                            <div class="nearest-volcano">
+                                <span>Nearest volcano:</span>
+                                <strong>${analysis.nearestVolcano.name}</strong>
+                                <span>(${analysis.nearestVolcano.distance} km away)</span>
+                            </div>
+                        </div>
+                    </div>
+                `;
+            }
+        }
+
+        // Konum seçici butonu için event listener
+        document.getElementById('enableLocationPicker').addEventListener('click', function() {
+            locationPickerEnabled = !locationPickerEnabled;
+            this.classList.toggle('active');
+            map.getContainer().style.cursor = locationPickerEnabled ? 'crosshair' : '';
+            
+            if (locationPickerEnabled) {
+                alert('Click on the map to select your location');
+            }
+        });
+
+        // Clear location butonu için event listener
+        document.getElementById('clearLocation').addEventListener('click', function() {
+            if (selectedLocationMarker) {
+                map.removeLayer(selectedLocationMarker);
+                selectedLocationMarker = null;
+            }
+            if (tempLocationMarker) {
+                map.removeLayer(tempLocationMarker);
+                tempLocationMarker = null;
+            }
+            document.getElementById('riskResult').style.display = 'none';
+            document.getElementById('confirmLocation').style.display = 'none';
+            this.style.display = 'none';
+            document.getElementById('enableLocationPicker').classList.remove('active');
+            locationPickerEnabled = false;
+            map.getContainer().style.cursor = '';
+            selectedLocation = null;
+        });
+
+        // Haritaya tıklama event listener'ı
+        map.on('click', function(e) {
+            if (locationPickerEnabled) {
+                const lat = e.latlng.lat;
+                const lng = e.latlng.lng;
+                
+                // Geçici marker'ı kaldır ve yenisini oluştur
+                if (tempLocationMarker) {
+                    map.removeLayer(tempLocationMarker);
+                }
+                
+                // Geçici marker oluştur
+                tempLocationMarker = L.marker([lat, lng], {
+                    icon: L.divIcon({
+                        className: 'user-location-marker temp',
+                        html: '<div class="user-pin"></div>',
+                        iconSize: [20, 20],
+                        iconAnchor: [10, 10]
+                    })
+                }).addTo(map);
+
+                // Konum onaylama butonunu göster
+                document.getElementById('confirmLocation').style.display = 'block';
+                
+                // Seçilen konumu global değişkende tut
+                selectedLocation = { lat, lng };
+            }
+        });
+
+        // Konum onaylama butonu için event listener'ı güncelle
+        document.getElementById('confirmLocation').addEventListener('click', function() {
+            if (selectedLocation) {
+                const userLocation = L.latLng(selectedLocation.lat, selectedLocation.lng);
+                const analysis = analyzeLocation(userLocation);
+
+                if (analysis.isInDanger) {
+                    // Tehlike durumunda detaylı uyarı göster
+                    Swal.fire({
+                        title: '⚠️ Volcanic Risk Analysis',
+                        html: `
+                            <div class="risk-analysis">
+                                <div class="risk-summary">
+                                    <p class="risk-warning">You are within the impact zone of ${analysis.totalVolcanoes} volcano(es)!</p>
+                                    
+                                    <div class="dangerous-volcanoes">
+                                        ${analysis.dangerousVolcanoes.map(v => `
+                                            <div class="volcano-risk-item ${v.status.toLowerCase()}">
+                                                <div class="volcano-risk-header">
+                                                    <strong>${v.name}</strong>
+                                                    <span class="risk-badge ${v.riskLevel.toLowerCase()}">${v.riskLevel} Risk</span>
+                                                </div>
+                                                <div class="volcano-risk-details">
+                                                    <span>Distance: ${v.distance} km</span>
+                                                    <span>Status: ${v.status}</span>
+                                                    <span>Inside Impact Zone: ${v.percentageInside}%</span>
+                                                </div>
+                                                <div class="risk-progress">
+                                                    <div class="risk-bar ${v.riskLevel.toLowerCase()}" 
+                                                         style="width: ${v.percentageInside}%"></div>
+                                                </div>
+                                            </div>
+                                        `).join('')}
+                                    </div>
+                                    
+                                    <p class="risk-action">Would you like to proceed with this location?</p>
+                                </div>
+                            </div>
+                        `,
+                        icon: 'warning',
+                        showCancelButton: true,
+                        confirmButtonColor: '#dc3545',
+                        cancelButtonColor: '#6c757d',
+                        confirmButtonText: 'Yes, I understand the risks',
+                        cancelButtonText: 'Choose another location',
+                        allowOutsideClick: false,
+                        customClass: {
+                            popup: 'risk-popup'
+                        }
+                    }).then((result) => {
+                        if (result.isConfirmed) {
+                            setFinalLocation(selectedLocation, analysis.dangerousVolcanoes);
+                        } else {
+                            resetLocationPicker();
+                        }
+                    });
+                } else {
+                    // Güvenli bölge mesajı
+                    Swal.fire({
+                        title: '✅ Safe Zone',
+                        html: `
+                            <div class="safe-analysis">
+                                <p>You are not in any immediate volcanic danger zone.</p>
+                                <div class="nearest-volcano">
+                                    <p>Nearest volcano:</p>
+                                    <div class="volcano-info ${analysis.nearestVolcano.status.toLowerCase()}">
+                                        <strong>${analysis.nearestVolcano.name}</strong>
+                                        <span>${analysis.nearestVolcano.distance} km away</span>
+                                    </div>
+                                </div>
+                            </div>
+                        `,
+                        icon: 'success',
+                        confirmButtonText: 'Confirm Location',
+                        confirmButtonColor: '#38a169'
+                    }).then(() => {
+                        setFinalLocation(selectedLocation, []);
+                    });
+                }
+            }
+        });
+
+        // Konum ayarlama yardımcı fonksiyonu
+        function setFinalLocation(location, dangerousVolcanoes) {
+            if (tempLocationMarker) {
+                map.removeLayer(tempLocationMarker);
+            }
+            
+            if (selectedLocationMarker) {
+                map.removeLayer(selectedLocationMarker);
+            }
+            
+            // Kalıcı marker oluştur
+            selectedLocationMarker = L.marker([location.lat, location.lng], {
+                icon: L.divIcon({
+                    className: 'user-location-marker',
+                    html: '<div class="user-pin"></div>',
+                    iconSize: [20, 20],
+                    iconAnchor: [10, 10]
+                })
+            }).addTo(map);
+            
+            // UI güncelle
+            document.getElementById('confirmLocation').style.display = 'none';
+            document.getElementById('clearLocation').style.display = 'block';
+            
+            // Risk sonuçlarını göster
+            showRiskResults(dangerousVolcanoes);
+            
+            // Haritayı konuma zoom yap
+            map.setView([location.lat, location.lng], 10);
+        }
+
+        // Risk sonuçlarını gösterme fonksiyonunu güncelle
+        function showRiskResults(dangerousVolcanoes) {
+            const resultDiv = document.getElementById('riskResult');
+            const messageDiv = resultDiv.querySelector('.risk-message');
+            const nearbyDiv = resultDiv.querySelector('.nearby-volcanoes');
+
+            resultDiv.style.display = 'block';
+            
+            if (dangerousVolcanoes.length > 0) {
+                messageDiv.innerHTML = `
+                    <div class="alert alert-danger">
+                        <strong>Warning!</strong> You are within the impact zone of ${dangerousVolcanoes.length} volcano(es)!
+                        <p class="danger-tip">Please be aware of evacuation routes and emergency procedures.</p>
+                    </div>
+                `;
+                
+                nearbyDiv.innerHTML = dangerousVolcanoes.map(v => `
+                    <div class="nearby-volcano ${v.status.toLowerCase()}">
+                        <span class="volcano-name">${v.name}</span>
+                        <span class="volcano-distance">${v.distance} km away</span>
+                        <span class="volcano-status">${v.status}</span>
+                    </div>
+                `).join('');
+            } else {
+                messageDiv.innerHTML = `
+                    <div class="alert alert-success">
+                        <strong>Good news!</strong> You are not in any immediate danger zone.
+                    </div>
+                `;
+                nearbyDiv.innerHTML = '';
+            }
+        }
+
+        // Stil eklemeleri
+        const styles = `
+            .danger-alert {
+                text-align: left;
+                padding: 10px;
+            }
+
+            .danger-text {
+                color: #dc3545;
+                font-size: 1.1em;
+                margin-bottom: 15px;
+            }
+
+            .danger-volcanoes {
+                background: rgba(220, 53, 69, 0.1);
+                padding: 10px;
+                border-radius: 6px;
+                margin: 10px 0;
+            }
+
+            .danger-volcano {
+                padding: 5px;
+                border-bottom: 1px solid rgba(0,0,0,0.1);
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .warning-text {
+                color: #856404;
+                margin-top: 15px;
+                font-weight: bold;
+            }
+
+            .danger-tip {
+                margin-top: 8px;
+                font-size: 0.9em;
+                color: #856404;
+                font-style: italic;
+            }
+        `;
+
+        // Stil ekle
+        const styleSheet = document.createElement('style');
+        styleSheet.textContent = styles;
+        document.head.appendChild(styleSheet);
+
+        // Tehlike uyarısı gösterme fonksiyonu
+        function showDangerAlert() {
+            Swal.fire({
+                title: 'Warning!',
+                text: 'You are within the impact zone of one or more volcanoes! Please be cautious.',
+                icon: 'warning',
+                confirmButtonText: 'I Understand',
+                background: 'rgba(255, 255, 255, 0.95)',
+                backdrop: 'rgba(255,0,0,0.1)'
+            });
+        }
+
+        // SweetAlert2 kütüphanesini ekle
+        const sweetAlertScript = document.createElement('script');
+        sweetAlertScript.src = 'https://cdn.jsdelivr.net/npm/sweetalert2@11';
+        document.head.appendChild(sweetAlertScript);
+
+        // Risk analizi fonksiyonunu güncelle
+        function analyzeLocation(userLocation) {
+            let dangerousVolcanoes = [];
+            let isInDanger = false;
+            let totalDistance = 0;
+            let nearestVolcano = null;
+
+            allMarkers.forEach(marker => {
+                const volcano = marker.volcano;
+                const volcanLoc = marker.getLatLng();
+                const distance = userLocation.distanceTo(volcanLoc) / 1000; // metre -> km
+                const radius = parseFloat(volcano['Yarýçap (km)'] || 0);
+
+                if (distance <= radius) {
+                    isInDanger = true;
+                    const riskLevel = calculateRiskLevel(distance, radius, volcano['Activity Status']);
+                    dangerousVolcanoes.push({
+                        name: volcano['Volcano Name'],
+                        distance: distance.toFixed(2),
+                        status: volcano['Activity Status'],
+                        radius: radius,
+                        riskLevel: riskLevel,
+                        percentageInside: (100 - (distance / radius * 100)).toFixed(1)
+                    });
+                }
+
+                // En yakın volkanı bul
+                if (!nearestVolcano || distance < totalDistance) {
+                    totalDistance = distance;
+                    nearestVolcano = {
+                        name: volcano['Volcano Name'],
+                        distance: distance.toFixed(2),
+                        status: volcano['Activity Status']
+                    };
+                }
+            });
+
+            return {
+                isInDanger,
+                dangerousVolcanoes: dangerousVolcanoes.sort((a, b) => a.distance - b.distance),
+                nearestVolcano,
+                totalVolcanoes: dangerousVolcanoes.length
+            };
+        }
+
+        // Risk seviyesi hesaplama fonksiyonu
+        function calculateRiskLevel(distance, radius, status) {
+            // Mesafenin etki alanı içindeki yüzdesi
+            const distancePercentage = (distance / radius) * 100;
+            
+            // Durum bazlı risk faktörü
+            const statusRisk = {
+                'Active': 1,
+                'Dormant': 0.6,
+                'Extinct': 0.2
+            };
+
+            // Risk seviyesi hesaplama (0-100 arası)
+            const riskScore = (100 - distancePercentage) * (statusRisk[status] || 0.2);
+            
+            // Risk seviyesi kategorileri
+            if (riskScore >= 75) return 'Critical';
+            if (riskScore >= 50) return 'High';
+            if (riskScore >= 25) return 'Moderate';
+            return 'Low';
+        }
+
+        // Yeni stil tanımlamaları ekle
+        const additionalStyles = `
+            .danger-alert {
+                text-align: left;
+                padding: 15px;
+            }
+
+            .danger-text {
+                color: #dc3545;
+                font-size: 1.2em;
+                margin-bottom: 15px;
+                font-weight: bold;
+            }
+
+            .danger-volcanoes {
+                background: rgba(220, 53, 69, 0.1);
+                padding: 10px;
+                border-radius: 6px;
+                margin: 10px 0;
+            }
+
+            .danger-volcano {
+                padding: 8px;
+                border-bottom: 1px solid rgba(0,0,0,0.1);
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+            }
+
+            .danger-volcano:last-child {
+                border-bottom: none;
+            }
+
+            .warning-text {
+                color: #856404;
+                margin-top: 15px;
+                font-size: 0.95em;
+                font-weight: bold;
+            }
+
+            .danger-tip {
+                margin-top: 8px;
+                font-size: 0.9em;
+                color: #856404;
+                font-style: italic;
+            }
+
+            .user-pin {
+                width: 16px;
+                height: 16px;
+                background: #3182ce;
+                border: 3px solid white;
+                border-radius: 50%;
+                box-shadow: 0 0 0 2px #3182ce;
+            }
+
+            .user-pin.active {
+                animation: pulse 2s infinite;
+            }
+
+            @keyframes pulse {
+                0% {
+                    transform: scale(1);
+                    opacity: 1;
+                    box-shadow: 0 0 0 0 rgba(49, 130, 206, 0.7);
+                }
+                70% {
+                    transform: scale(1.1);
+                    opacity: 0.7;
+                    box-shadow: 0 0 0 10px rgba(49, 130, 206, 0);
+                }s
+                100% {
+                    transform: scale(1);
+                    opacity: 1;
+                    box-shadow: 0 0 0 0 rgba(49, 130, 206, 0);
+                }
+            }
+        `;
+
+        // Yeni stilleri ekle
+        const additionalStyleSheet = document.createElement('style');
+        additionalStyleSheet.textContent = additionalStyles;
+        document.head.appendChild(additionalStyleSheet);
+
+        // Chatbot fonksiyonları
+        const chatMessages = document.getElementById('chatMessages');
+        const chatInput = document.getElementById('chatInput');
+        const sendButton = document.getElementById('sendMessage');
+
+        // Basit yanıt veritabanı
+        const responses = {
+            'hello': 'Hello! How can I help you with volcanoes today?',
+            'hi': 'Hi there! Feel free to ask any questions about volcanoes!',
+            'what is a volcano': 'A volcano is an opening in Earth\'s crust where magma, gases, and ash escape to the surface. They can form mountains or craters on the surface.',
+            'how do volcanoes form': 'Volcanoes form when magma from the Earth\'s upper mantle works its way to the surface. This happens usually at the edges of tectonic plates.',
+            'what are the types of volcanoes': 'There are three main types of volcanoes: Shield volcanoes, Stratovolcanoes, and Cinder cones. Each type has different characteristics and formation processes.',
+            'what is magma': 'Magma is molten rock beneath the Earth\'s surface. When it reaches the surface, it\'s called lava.',
+            'what is an eruption': 'A volcanic eruption occurs when magma and gases escape to the surface. This can happen explosively or more quietly, depending on the type of volcano.',
+            'how dangerous are volcanoes': 'Volcanoes can be very dangerous. They can produce lava flows, toxic gases, ash falls, and pyroclastic flows. However, modern monitoring systems help predict eruptions.',
+            'what is the ring of fire': 'The Ring of Fire is a region around the Pacific Ocean where many volcanoes and earthquakes occur. It\'s shaped like a horseshoe and contains about 75% of Earth\'s volcanoes.',
+            'help': 'You can ask me about:\n- What volcanoes are\n- How volcanoes form\n- Types of volcanoes\n- Volcanic eruptions\n- Volcano safety\n- The Ring of Fire',
+            'merhaba': 'Merhaba! Size volkanlar hakkında nasıl yardımcı olabilirim?',
+            'volkan nedir': 'Volkan, magma, gaz ve külün yeryüzüne çıktığı yer kabuğundaki bir açıklıktır. Yüzeyde dağlar veya kraterler oluşturabilirler.',
+            'volkanlar nasıl oluşur': 'Volkanlar, Dünya\'nın üst mantosundaki magmanın yüzeye doğru hareket etmesiyle oluşur. Bu genellikle tektonik plakaların kenarlarında gerçekleşir.',
+            'volkan türleri nelerdir': 'Üç ana volkan türü vardır: Kalkan volkanları, Stratovolkanlar ve Cüruf konileri. Her türün farklı özellikleri ve oluşum süreçleri vardır.',
+            'magma nedir': 'Magma, Dünya\'nın yüzeyinin altındaki erimiş kayadır. Yüzeye ulaştığında lav olarak adlandırılır.',
+            'volkanik patlama nedir': 'Volkanik patlama, magma ve gazların yüzeye çıkmasıyla gerçekleşir. Bu, volkan türüne bağlı olarak patlayıcı veya daha sessiz bir şekilde olabilir.',
+            'volkanlar ne kadar tehlikeli': 'Volkanlar çok tehlikeli olabilir. Lav akıntıları, zehirli gazlar, kül yağışları ve piroklastik akıntılar üretebilirler. Ancak, modern izleme sistemleri patlamaları tahmin etmeye yardımcı olur.',
+            'ateş çemberi nedir': 'Ateş Çemberi, Pasifik Okyanusu çevresinde birçok volkan ve depremin meydana geldiği bir bölgedir. At nalı şeklindedir ve Dünya\'daki volkanların yaklaşık %75\'ini içerir.',
+            'ne zaman patlayacak': 'Lütfen volkan adını belirtin. Örnek: "Etna ne zaman patlayacak?"',
+            'when will it erupt': 'Please specify the volcano name. Example: "When will Etna erupt?"',
+        };
+
+        function addMessage(message, isUser = false) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${isUser ? 'user' : 'bot'}`;
+            messageDiv.textContent = message;
+            chatMessages.appendChild(messageDiv);
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        }
+
+        function processMessage(message) {
+            message = message.toLowerCase().trim();
+            let response;
+            
+            // Patlama tahmini için kontrol
+            if (message.includes('ne zaman patla') || (message.includes('when') && message.includes('erupt'))) {
+                // Volkan adını mesajdan çıkar
+                const volcanoes = allMarkers.map(m => m.volcano['Volcano Name'].toLowerCase());
+                let foundVolcano = null;
+
+                // Mesajda volkan adı arama
+                for (let volcano of volcanoes) {
+                    if (message.includes(volcano)) {
+                        foundVolcano = volcano;
+                        break;
+                    }
+                }
+                
+                if (foundVolcano) {
+                    const volcano = allMarkers.find(m => 
+                        m.volcano['Volcano Name'].toLowerCase() === foundVolcano
+                    ).volcano;
+                    
+                    const prediction = predictNextEruption(volcano);
+                    const lastEruption = volcano['Last Known Eruption'] || 'Bilinmiyor';
+                    
+                    response = `${volcano['Volcano Name']} için patlama tahmini:\n` +
+                              `Son patlama: ${lastEruption}\n` +
+                              `Tahmini patlama: ${prediction}\n\n` +
+                              `Not: Bu tahmin, volkanın geçmiş aktivitesi ve mevcut durumuna dayanmaktadır. ` +
+                              `Volkanik patlamalar karmaşık jeolojik süreçlerdir ve kesin tahmin yapılamaz.`;
+                } else {
+                    response = 'Lütfen bir volkan adı belirtin. Örnek: "Etna ne zaman patlayacak?" veya "When will Mount Vesuvius erupt?"';
+                }
+            } else {
+                // Yanıt veritabanından yanıt ara
+                response = 'I\'m not sure about that. Try asking about volcanoes, their formation, types, or dangers. Type "help" for more options.';
+                
+                // Tam eşleşme kontrolü
+                if (responses[message]) {
+                    response = responses[message];
+                } else {
+                    // Kısmi eşleşme kontrolü
+                    for (let key in responses) {
+                        if (message.includes(key)) {
+                            response = responses[key];
+                            break;
+                        }
+                    }
+                }
+
+                // En yakın volkan kontrolü
+                if (message.includes('nearest') || message.includes('closest') || 
+                    message.includes('en yakın') || message.includes('yakınımda')) {
+                    if (selectedLocationMarker) {
+                        const nearestVolc = findNearestVolcano(selectedLocationMarker.getLatLng());
+                        response = `The nearest volcano to your location is ${nearestVolc.name}, which is ${nearestVolc.distance} km away.`;
+                    } else {
+                        response = 'Please select a location first to find the nearest volcano.';
+                    }
+                }
+            }
+
+            // Yanıtı göster
+            setTimeout(() => addMessage(response), 500);
+        }
+
+        function findNearestVolcano(location) {
+            let nearest = null;
+            let minDistance = Infinity;
+
+            allMarkers.forEach(marker => {
+                const distance = location.distanceTo(marker.getLatLng()) / 1000; // km cinsinden
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearest = {
+                        name: marker.volcano['Volcano Name'],
+                        distance: distance.toFixed(2)
+                    };
+                }
+            });
+
+            return nearest;
+        }
+
+        // Volkanik patlama tahmini için yardımcı fonksiyonlar
+        function calculateEruptionProbability(volcano) {
+            // Aktivite durumuna göre baz risk puanı
+            const activityRisk = {
+                'Active': 0.8,
+                'Dormant': 0.4,
+                'Extinct': 0.1
+            };
+
+            // Son patlamadan bu yana geçen süre (yıl)
+            const lastEruption = volcano['Last Known Eruption'];
+            let yearsSinceEruption = 0;
+            
+            if (lastEruption && lastEruption !== 'Unknown') {
+                // Tarih formatını temizle ve yılı al
+                const eruptionYear = parseInt(lastEruption.replace(/[^0-9]/g, ''));
+                if (!isNaN(eruptionYear)) {
+                    yearsSinceEruption = new Date().getFullYear() - eruptionYear;
+                }
+            }
+
+            // Risk hesaplama
+            const baseRisk = activityRisk[volcano['Activity Status']] || 0.1;
+            const timeRisk = Math.min(yearsSinceEruption / 100, 1); // Zaman faktörü (max 1)
+            
+            // Toplam olasılık (0-1 arası)
+            const probability = (baseRisk + timeRisk) / 2;
+            
+            return probability;
+        }
+
+        function predictNextEruption(volcano) {
+            const probability = calculateEruptionProbability(volcano);
+            
+            // Olasılığa göre tahmini süre hesaplama
+            let prediction;
+            if (probability > 0.7) {
+                prediction = Math.floor(Math.random() * 5) + 1; // 1-5 yıl
+                return `yüksek risk - ${prediction} yıl içinde`;
+            } else if (probability > 0.4) {
+                prediction = Math.floor(Math.random() * 10) + 5; // 5-15 yıl
+                return `orta risk - ${prediction} yıl içinde`;
+            } else {
+                prediction = Math.floor(Math.random() * 50) + 15; // 15-65 yıl
+                return `düşük risk - ${prediction} yıl içinde`;
+            }
+        }
+
+        // Event listeners
+        sendButton.addEventListener('click', () => {
+            const message = chatInput.value.trim();
+            if (message) {
+                addMessage(message, true);
+                chatInput.value = '';
+                processMessage(message);
+            }
+        });
+
+        chatInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                const message = chatInput.value.trim();
+                if (message) {
+                    addMessage(message, true);
+                    chatInput.value = '';
+                    processMessage(message);
+                }
+            }
+        });
+    </script>
+
+    <style>
+        /* Map container style - add this at the beginning of style section */
+        #map {
+            height: 100vh;
+            width: calc(100% - 320px);
+            position: fixed;
+            right: 0;
+            top: 0;
+            z-index: 1;
+        }
+
+        #sidebar {
+            width: 320px;
+            height: 100vh;
+            position: fixed;
+            left: 0;
+            top: 0;
+            background: white;
+            z-index: 2;
+            overflow-y: auto;
+            box-shadow: 2px 0 15px rgba(0,0,0,0.1);
+            padding: 0;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .sidebar-header {
+            background: #2b6cb0;
+            color: white;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        .sidebar-header h2 {
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .sidebar-content {
+            padding: 20px;
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .filter-section {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .filter-section h3 {
+            color: #2d3748;
+            font-size: 1.1rem;
+            margin: 0 0 15px 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .filter-group {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: white;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .filter-group h4 {
+            color: #4a5568;
+            font-size: 0.95rem;
+            margin: 0 0 10px 0;
+        }
+
+        .filter-group label {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            color: #4a5568;
+            cursor: pointer;
+            transition: color 0.2s;
+        }
+
+        .filter-group label:hover {
+            color: #2b6cb0;
+        }
+
+        .filter-group input[type="checkbox"] {
+            margin-right: 8px;
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+
+        .filter-group input[type="text"],
+        .filter-group select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+
+        .filter-group input[type="text"]:focus,
+        .filter-group select:focus {
+            outline: none;
+            border-color: #2b6cb0;
+            box-shadow: 0 0 0 2px rgba(43, 108, 176, 0.2);
+        }
+
+        .layer-control {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .layer-control h3 {
+            color: #2d3748;
+            font-size: 1.1rem;
+            margin: 0 0 15px 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .layer-control select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            background: white;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .layer-control select:focus {
+            outline: none;
+            border-color: #2b6cb0;
+            box-shadow: 0 0 0 2px rgba(43, 108, 176, 0.2);
+        }
+
+        .statistics {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .statistics h3 {
+            color: #2d3748;
+            font-size: 1.1rem;
+            margin: 0 0 15px 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        #statsContent {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        #statsContent p {
+            background: white;
+            padding: 10px;
+            border-radius: 6px;
+            margin: 0;
+            text-align: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        #statsContent p span {
+            display: block;
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #2b6cb0;
+            margin-top: 4px;
+        }
+
+        .danger-check-section {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .danger-check-section h3 {
+            color: #2d3748;
+            font-size: 1.1rem;
+            margin: 0 0 15px 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .risk-controls {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .location-instruction {
+            color: #4a5568;
+            font-size: 0.9rem;
+            margin-bottom: 15px;
+            text-align: center;
+            padding: 10px;
+            background: #ebf8ff;
+            border-radius: 4px;
+            border: 1px solid #bee3f8;
+        }
+
+        .button-group {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .danger-check-btn,
+        .location-picker-btn,
+        .confirm-location-btn,
+        .clear-location-btn {
+            padding: 10px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            color: white;
+            width: 100%;
+        }
+
+        .danger-check-btn { background: #e53e3e; }
+        .location-picker-btn { background: #3182ce; }
+        .confirm-location-btn { background: #38a169; }
+        .clear-location-btn { background: #718096; }
+
+        .danger-check-btn:hover { background: #c53030; }
+        .location-picker-btn:hover { background: #2b6cb0; }
+        .confirm-location-btn:hover { background: #2f855a; }
+        .clear-location-btn:hover { background: #4a5568; }
+
+        .risk-result {
+            margin-top: 15px;
+            background: white;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+
+        .risk-message {
+            padding: 15px;
+        }
+
+        .nearby-volcanoes {
+            max-height: 200px;
+            overflow-y: auto;
+            padding: 0 15px 15px;
+        }
+
+        .nearby-volcano {
+            background: #f8f9fa;
+            padding: 10px;
+            margin-bottom: 8px;
+            border-radius: 4px;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+
+        .nearby-volcano:last-child {
+            margin-bottom: 0;
+        }
+
+        .volcano-name {
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .volcano-distance {
+            color: #4a5568;
+            font-size: 0.9rem;
+        }
+
+        .volcano-status {
+            align-self: flex-start;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+
+        .nearby-volcano.active .volcano-status {
+            background: #fed7d7;
+            color: #c53030;
+        }
+
+        .nearby-volcano.dormant .volcano-status {
+            background: #feebc8;
+            color: #c05621;
+        }
+
+        .nearby-volcano.extinct .volcano-status {
+            background: #e2e8f0;
+            color: #4a5568;
+        }
+
+        /* Scrollbar styles */
+        .sidebar-content::-webkit-scrollbar,
+        .nearby-volcanoes::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        .sidebar-content::-webkit-scrollbar-track,
+        .nearby-volcanoes::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        .sidebar-content::-webkit-scrollbar-thumb,
+        .nearby-volcanoes::-webkit-scrollbar-thumb {
+            background: #cbd5e0;
+            border-radius: 4px;
+        }
+
+        .sidebar-content::-webkit-scrollbar-thumb:hover,
+        .nearby-volcanoes::-webkit-scrollbar-thumb:hover {
+            background: #a0aec0;
+        }
+
+        /* Map container adjustment */
+        #map {
+            width: calc(100% - 320px);
+        }
+
+        // Yeni stiller ekle
+        .risk-content {
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+
+        .risk-content.danger {
+            background: #fff5f5;
+            border: 1px solid #feb2b2;
+        }
+
+        .risk-content.safe {
+            background: #f0fff4;
+            border: 1px solid #9ae6b4;
+        }
+
+        .risk-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .risk-header i {
+            font-size: 1.5em;
+        }
+
+        .risk-content.danger .risk-header i {
+            color: #e53e3e;
+        }
+
+        .risk-content.safe .risk-header i {
+            color: #38a169;
+        }
+
+        .volcano-detail-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px;
+            border-bottom: 1px solid rgba(0,0,0,0.1);
+        }
+
+        .volcano-detail-item:last-child {
+            border-bottom: none;
+        }
+
+        .volcano-detail-item .status {
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+        }
+
+        .volcano-detail-item .status.active {
+            background: #fed7d7;
+            color: #c53030;
+        }
+
+        .volcano-detail-item .status.dormant {
+            background: #feebc8;
+            color: #c05621;
+        }
+
+        .volcano-detail-item .status.extinct {
+            background: #e2e8f0;
+            color: #4a5568;
+        }
+
+        /* Chatbot Styles */
+        .chatbot-section {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+
+        .chatbot-section h3 {
+            color: #2d3748;
+            font-size: 1.1rem;
+            margin: 0 0 15px 0;
+            padding-bottom: 8px;
+            border-bottom: 2px solid #e2e8f0;
+        }
+
+        .chat-container {
+            background: white;
+            border-radius: 6px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+        }
+
+        .chat-messages {
+            height: 300px;
+            overflow-y: auto;
+            padding: 15px;
+        }
+
+        .message {
+            margin-bottom: 10px;
+            padding: 8px 12px;
+            border-radius: 15px;
+            max-width: 80%;
+            word-wrap: break-word;
+        }
+
+        .message.user {
+            background: #3182ce;
+            color: white;
+            margin-left: auto;
+            border-bottom-right-radius: 5px;
+        }
+
+        .message.bot {
+            background: #f0f0f0;
+            color: #2d3748;
+            margin-right: auto;
+            border-bottom-left-radius: 5px;
+        }
+
+        .chat-input-container {
+            display: flex;
+            padding: 10px;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        #chatInput {
+            flex: 1;
+            padding: 8px 12px;
+            border: 1px solid #e2e8f0;
+            border-radius: 20px;
+            margin-right: 8px;
+            font-size: 0.9rem;
+        }
+
+        #chatInput:focus {
+            outline: none;
+            border-color: #3182ce;
+            box-shadow: 0 0 0 2px rgba(49,130,206,0.2);
+        }
+
+        #sendMessage {
+            background: #3182ce;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.2s;
+        }
+
+        #sendMessage:hover {
+            background: #2c5282;
+        }
+
+        .chat-messages::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .chat-messages::-webkit-scrollbar-track {
+            background: #f1f1f1;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb {
+            background: #cbd5e0;
+            border-radius: 3px;
+        }
+
+        .chat-messages::-webkit-scrollbar-thumb:hover {
+            background: #a0aec0;
+        }
+    </style>
+</body>
+</html>
