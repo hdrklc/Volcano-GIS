@@ -1,149 +1,135 @@
 # Project Documentation for Volcano GIS
 
-**A real-time lidar-inertial odometry package. We strongly recommend users read this document thoroughly and test the package with the provided dataset first.**
+**🌋 A web-based GIS application for monitoring and analyzing volcanic activity in Europe.**
 
-## Menu
+## 🗺️ Menu
 
 - [**System Architecture**](#system-architecture)
 - [**Package Dependency**](#dependency)
 - [**Package Installation**](#install)
 - [**Prepare Data**](#prepare-data)
-- [**Prepare IMU Data**](#prepare-imu-data)
-- [**Sample Datasets**](#sample-datasets)
-- [**Running the Package**](#run-the-package)
+- [**Application Features**](#application-features)
+- [**Running the Application**](#run-the-application)
 - [**Other Notes**](#other-notes)
 - [**Issues**](#issues)
-- [**Paper**](#paper)
-- [**TODO**](#todo)
-- [**Related Packages**](#related-packages)
 - [**Acknowledgements**](#acknowledgements)
 
-## System Architecture
+## 🛠️ System Architecture
 
 ![System Architecture](./docs/system_architecture.png)
 
 The system comprises the following components:
 
-- **Sensor Module:** Captures real-time data from lidar and IMU.
-- **Data Preprocessing:** Filters, aligns, and formats incoming data.
-- **Core Algorithm:** Implements SLAM with tightly-coupled lidar-inertial odometry.
-- **Visualization:** Displays processed data in RViz.
-- **Logging:** Records essential system activities for debugging.
+- 🖥️ **Frontend Module:** Interactive map interface for volcano selection and analysis using OpenLayers.
+- ⚙️ **Backend Module:** Node.js server managing database interactions and analysis computations.
+- 🗄️ **Database Module:** PostgreSQL with PostGIS extension for spatial data management.
+- 🤖 **Chatbot Integration:** Provides real-time information about volcanic activity and predictive insights.
 
-The architecture ensures efficient, real-time performance while maintaining accuracy.
+This architecture ensures efficient, real-time performance while maintaining accuracy.
 
-## Dependency
+## 🔧 Package Dependency
 
-The project requires the following dependencies:
+Install the required dependencies with:
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y ros-melodic-navigation
-sudo apt-get install -y ros-melodic-robot-localization
-sudo apt-get install -y ros-melodic-robot-state-publisher
-sudo apt-get install -y libgtsam-dev libgtsam-unstable-dev
+sudo apt-get install -y nodejs npm postgresql postgis
 ```
 
-- **ROS (Robot Operating System):** Facilitates communication between modules.
-- **GTSAM (Georgia Tech Smoothing and Mapping):** Provides optimization routines.
-- **Eigen:** Linear algebra computations.
-- **PCL (Point Cloud Library):** Point cloud processing.
-
-## Installation
-
-Follow these steps to install the package:
+Install Node.js dependencies:
 
 ```bash
-cd ~/catkin_ws/src
-git clone https://github.com/your-username/your-repo.git
-cd ..
-catkin_make
-source devel/setup.bash
+npm install express pg node-fetch openlayers chatbot-api
 ```
 
-Verify the installation with:
+**Dependency Details:**
+- 🛠️ **Node.js:** JavaScript runtime environment.
+- 🚀 **Express:** Lightweight web server framework.
+- 🌐 **OpenLayers:** Library for interactive map rendering.
+- 🗺️ **PostGIS:** Spatial database extension for PostgreSQL.
+- 🤖 **Chatbot API:** For user interactions.
+
+## 🚀 Package Installation
+
+Follow these steps to install the application:
 
 ```bash
-roslaunch lio_sam run.launch
+cd ~/volcano_gis
+npm install
 ```
 
-## Prepare Data
-
-Ensure the data is in the correct format:
-
-- **Timestamp:** Each point cloud should have accurate timestamps for synchronization.
-- **Format:** Data should be in .pcd or .bag format.
-- **Point Structure:** Include 'x', 'y', 'z', 'intensity', 'time', and 'ring'.
-
-## Prepare IMU Data
-
-The IMU data should meet the following requirements:
-
-- **Frequency:** At least 200Hz for accurate motion estimation.
-- **Fields:** Include acceleration, angular velocity, and orientation.
-- **Alignment:** Align IMU frame with the sensor frame.
-
-## Sample Datasets
-
-- **Walking Dataset:** [[Download Link]]
-- **Park Dataset:** [[Download Link]]
-- **Garden Dataset:** [[Download Link]]
-
-## Running the Package
-
-1. Launch the package:
+Start PostgreSQL service and create the database:
 
 ```bash
-roslaunch lio_sam run.launch
+sudo service postgresql start
+psql -U postgres -c "CREATE DATABASE volcano_gis;"
+psql -U postgres -d volcano_gis -c "CREATE EXTENSION postgis;"
 ```
 
-2. Play the sample data:
+## 📂 Prepare Data
+
+Ensure the volcano data includes the following fields:
+
+- 🌋 **Name:** Volcano name.
+- 🗺️ **Location:** Latitude and longitude.
+- 🔥 **Activity Status:** Active or inactive.
+- 📏 **Radius:** Impact radius for buffer analysis.
+- 📐 **Area:** Volcano's coverage area.
+
+Import sample data with:
 
 ```bash
-rosbag play dataset.bag -r 3
+psql -U postgres -d volcano_gis -f ./data/volcano_data.sql
 ```
 
-3. Monitor the output in RViz.
+## 🌐 Application Features
 
-## Other Notes
+1. **🗺️ Volcano Visualization:**
+   - Interactive map displaying volcanoes across Europe.
+   - Hovering over a volcano reveals details like name, location, activity status, radius, and area.
 
-- **Calibration:** Ensure proper calibration of sensors.
-- **Loop Closure:** Enable for improved long-term consistency.
-- **GPS Integration:** Utilize GPS data if available.
+2. **🌋 Buffer Analysis:**
+   - Calculates the affected area in case of an eruption based on the volcano's radius and area.
+   - Displays the potential impact zone as a buffer around the volcano.
 
-## Issues
+3. **⚠️ Risk Analysis:**
+   - Determines if the user's location falls within the buffer zone.
+   - If inside the buffer, calculates the risk percentage based on distance.
+   - If outside, indicates the nearest volcano.
+
+4. **🤖 Chatbot Integration:**
+   - Answers general questions about volcanoes.
+   - Predicts potential eruption times based on activity status and last eruption date.
+
+## ▶️ Running the Application
+
+1. **Start the server:**
+
+```bash
+node server.js
+```
+
+2. **Access the application via:**
+
+```bash
+http://localhost:3000
+```
+
+## 📓 Other Notes
+
+- 🗺️ **Map Layer:** OpenLayers is used for volcano visualization.
+- 🛠️ **Database Configuration:** Modify database connection settings in `server.js` if needed.
+- ⏱️ **Performance:** Optimize queries for real-time responsiveness.
+
+## ❗ Issues
 
 Common issues and solutions:
 
-- **Misaligned Point Clouds:** Check calibration files.
-- **High Latency:** Optimize parameters for better performance.
-- **IMU Drift:** Ensure high-quality IMU with proper alignment.
+- ⚠️ **Database Connection Failure:** Ensure PostgreSQL is running.
+- ❌ **No Volcano Data Displayed:** Verify data import.
+- 🤖 **Chatbot Not Responding:** Check API configuration.
 
-## Paper
+## 🙏 Acknowledgements
 
-Cite this work as follows:
-
-```bibtex
-@inproceedings{liosam2020,
-  title={LIO-SAM: Tightly-coupled Lidar Inertial Odometry via Smoothing and Mapping},
-  author={Your Name},
-  booktitle={IEEE/RSJ International Conference on Intelligent Robots and Systems (IROS)},
-  year={2020}
-}
-```
-
-## TODO
-
-- [ ] Optimize algorithm for better performance.
-- [ ] Add support for additional sensors.
-- [ ] Enhance visualization features.
-
-## Related Packages
-
-- [LIO-SAM](https://github.com/TixiaoShan/LIO-SAM) - Original implementation.
-- [SC-LIO-SAM](https://github.com/gisbi-kim/SC-LIO-SAM) - With Scan Context.
-
-## Acknowledgements
-
-Special thanks to Tixiao Shan for the original LIO-SAM implementation.
+Special thanks to TMMOB HKMO for support and guidance.
 
